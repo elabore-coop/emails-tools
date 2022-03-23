@@ -14,7 +14,6 @@ class MailMail(models.Model):
 
     _inherit = "mail.mail"
 
-    @api.multi
     def _send(self, auto_commit=False, raise_exception=False, smtp_session=None):
         IrMailServer = self.env["ir.mail_server"]
         IrAttachment = self.env["ir.attachment"]

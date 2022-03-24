@@ -39,10 +39,8 @@ class MailMail(models.Model):
                 # `datas` (binary field) could bloat the browse cache, triggerring
                 # soft/hard mem limits with temporary data.
                 attachments = [
-                    (a["datas_fname"], base64.b64decode(a["datas"]), a["mimetype"])
-                    for a in attachments.sudo().read(
-                        ["datas_fname", "datas", "mimetype"]
-                    )
+                    (a["name"], base64.b64decode(a["datas"]), a["mimetype"])
+                    for a in attachments.sudo().read(["name", "datas", "mimetype"])
                     if a["datas"] is not False
                 ]
 
@@ -59,9 +57,17 @@ class MailMail(models.Model):
                 headers = {}
                 ICP = self.env["ir.config_parameter"].sudo()
                 bounce_alias = ICP.get_param("mail.bounce.alias")
+                bounce_alias_static = tools.str2bool(
+                    ICP.get_param("mail.bounce.alias.static", "False")
+                )
                 catchall_domain = ICP.get_param("mail.catchall.domain")
                 if bounce_alias and catchall_domain:
-                    if mail.model and mail.res_id:
+                    if bounce_alias_static:
+                        headers["Return-Path"] = "%s@%s" % (
+                            bounce_alias,
+                            catchall_domain,
+                        )
+                    elif mail.mail_message_id.is_thread_message():
                         headers["Return-Path"] = "%s+%d-%s-%d@%s" % (
                             bounce_alias,
                             mail.id,
@@ -77,7 +83,7 @@ class MailMail(models.Model):
                         )
                 if mail.headers:
                     try:
-                        headers.update(safe_eval(mail.headers))
+                        headers.update(ast.literal_eval(mail.headers))
                     except Exception:
                         pass
 
@@ -97,9 +103,9 @@ class MailMail(models.Model):
                 # mail record.
                 notifs = self.env["mail.notification"].search(
                     [
-                        ("is_email", "=", True),
+                        ("notification_type", "=", "email"),
                         ("mail_id", "in", mail.ids),
-                        ("email_status", "not in", ("sent", "canceled")),
+                        ("notification_status", "not in", ("sent", "canceled")),
                     ]
                 )
                 if notifs:
@@ -108,10 +114,20 @@ class MailMail(models.Model):
                     )
                     notifs.sudo().write(
                         {
-                            "email_status": "exception",
+                            "notification_status": "exception",
                             "failure_type": "UNKNOWN",
                             "failure_reason": notif_msg,
                         }
+                    )
+                    # `test_mail_bounce_during_send`, force immediate update to obtain the lock.
+                    # see rev. 56596e5240ef920df14d99087451ce6f06ac6d36
+                    notifs.flush(
+                        fnames=[
+                            "notification_status",
+                            "failure_type",
+                            "failure_reason",
+                        ],
+                        records=notifs,
                     )
 
                 # build an RFC2822 email.message.Message object and send it without queuing
@@ -148,7 +164,9 @@ class MailMail(models.Model):
                             )
                         else:
                             reply_to = mail_server.reply_to__forced_address
+                    import pdb
 
+                    pdb.set_trace()
                     msg = IrMailServer.build_email(
                         email_from=email_from,
                         email_to=email.get("email_to"),
@@ -238,10 +256,8 @@ class MailMail(models.Model):
                         if isinstance(e, UnicodeEncodeError):
                             value = "Invalid text: %s" % e.object
                         else:
-                            # get the args of the original error, wrap into a value and throw a MailDeliveryException
-                            # that is an except_orm, with name and value as arguments
                             value = ". ".join(e.args)
-                        raise MailDeliveryException(_("Mail Delivery Failed"), value)
+                        raise MailDeliveryException(value)
                     raise
 
             if auto_commit is True:

@@ -1,7 +1,7 @@
 {
     "name": "Bypass SMTP relaying blockage",
     "summary": "Force Sender and Reply To in mails to solve smtp relaying blockage",
-    "version": "13.0.1.0.0",
+    "version": "14.0.1.0.0",
     "license": "AGPL-3",
     "author": "Elabore",
     "website": "https://elabore.coop/",
